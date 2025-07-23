@@ -1,0 +1,58 @@
+#!/bin/bash
+# Configuration
+user='repmgr'
+database='repmgr'
+current_node={{ postgresql_repmgr_host }}
+config_file='/etc/keepalived/keepalived.conf'
+primary_priority=100
+standby_priority=90
+
+
+# Logging function (send to syslog)
+log() {
+    /usr/bin/logger -t keepalived_prio -- "$1"
+}
+
+
+log "Checking PostgreSQL role on node $current_node..."
+
+
+# Check if the node is primary
+is_primary=$(psql -h $current_node -U $user -d $database -tAc "SELECT pg_is_in_recovery()" 2>/dev/null)
+if [ $? -ne 0 ]; then
+    log "Error checking role of the node $current_node."
+    exit 1
+fi
+
+
+# Determine current priority and state in keepalived.conf
+current_priority=$(grep -E "^\s*priority" $config_file | awk '{print $2}')
+current_state=$(grep -E "^\s*state" $config_file | awk '{print $2}')
+
+
+log "Current priority: $current_priority"
+log "Current state: $current_state"
+
+
+# Update the priority and state if they do not match the role
+if [ "$is_primary" == "f" ]; then
+    if [ "$current_priority" -ne $primary_priority ] || [ "$current_state" != "MASTER" ]; then
+        log "Node $current_node is primary. Updating priority to $primary_priority and state to MASTER."
+        sed -i "s/^\s*priority.*/    priority $primary_priority/" $config_file
+        sed -i "s/^\s*state.*/    state MASTER/" $config_file
+        systemctl reload keepalived
+        log "Keepalived priority updated to $primary_priority and state to MASTER. Service reloaded."
+    else
+        log "Node $current_node is primary and keepalived is already set to priority $primary_priority and state MASTER. No changes made."
+    fi
+else
+    if [ "$current_priority" -ne $standby_priority ] || [ "$current_state" != "BACKUP" ]; then
+        log "Node $current_node is standby. Updating priority to $standby_priority and state to BACKUP."
+        sed -i "s/^\s*priority.*/    priority $standby_priority/" $config_file
+        sed -i "s/^\s*state.*/    state BACKUP/" $config_file
+        systemctl reload keepalived
+        log "Keepalived priority updated to $standby_priority and state to BACKUP. Service reloaded."
+    else
+        log "Node $current_node is standby and keepalived is already set to priority $standby_priority and state BACKUP. No changes made."
+    fi
+fi

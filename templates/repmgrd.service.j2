@@ -1,0 +1,24 @@
+[Unit]
+Description=Manage repmgrd for PostgreSQL
+After=network.target postgresql-{{ postgresql_version_major }}.service
+Requires=postgresql-{{ postgresql_version_major }}.service
+
+[Service]
+Environment=PATH={{ postgresql_bin_path }}:/usr/bin:/bin
+Type=forking
+User=postgres
+ExecStart={{ postgresql_bin_path}}/repmgrd -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf -d --pid-file=/run/repmgr/repmgrd.pid
+PIDFile=/run/repmgr/repmgrd.pid
+ExecStop=/bin/kill -TERM $MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=repmgrd
+RuntimeDirectory=repmgr
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

@@ -1,2 +1,23 @@
 ---
-# tasks file for ahu_services.postgresql_ha
+- name: Debug test message
+  ansible.builtin.debug:
+    msg: >
+      This is node {{ postgresql_repmgr_node_id }} with IP {{ postgresql_repmgr_host }}.
+
+- name: Install required packages
+  ansible.builtin.import_tasks: install.yml
+
+- name: Deploy failover and monitoring scripts
+  ansible.builtin.import_tasks: scripts.yml
+
+- name: Configure Repmgr
+  ansible.builtin.import_tasks: repmgr.yml
+
+- name: Configure SSH for repmgr switchover
+  ansible.builtin.import_tasks: repmgr_ssh.yml
+
+- name: Configure Keepalived
+  ansible.builtin.import_tasks: keepalived.yml
+
+# - name: Final configuration and service activation
+#   ansible.builtin.import_tasks: configure.yml

@@ -1,0 +1,59 @@
+---
+- name: Set SELinux to permissive (boot persistent)
+  become: true
+  ansible.posix.selinux:
+    state: permissive
+    policy: targeted
+
+- name: Ensure /var/log/update_keepalived_priority.log exists
+  become: true
+  ansible.builtin.file:
+    path: /var/log/update_keepalived_priority.log
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy Keepalived configuration
+  become: true
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0644"
+  notify: Restart keepalived
+
+- name: Deploy check_postgres.sh script
+  become: true
+  ansible.builtin.copy:
+    src: check_postgres.sh
+    dest: /usr/local/bin/check_postgres.sh
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Deploy update_keepalived_priority.sh script
+  become: true
+  ansible.builtin.template:
+    src: update_keepalived_priority.sh.j2
+    dest: /usr/local/bin/update_keepalived_priority.sh
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Set cronjob to update Keepalived priority
+  become: true
+  ansible.builtin.cron:
+    name: "Update Keepalived priority"
+    minute: "*"
+    job: "/usr/local/bin/update_keepalived_priority.sh"
+    state: present
+
+- name: Allow VRRP (protocol 112) in firewalld
+  become: true
+  ansible.posix.firewalld:
+    protocol: vrrp
+    permanent: true
+    state: enabled
+    immediate: true

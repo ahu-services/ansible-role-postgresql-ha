@@ -1,0 +1,23 @@
+node_id={{ postgresql_repmgr_node_id }}
+node_name='{{ ansible_hostname }}'
+conninfo='host={{ postgresql_repmgr_host }} user=repmgr dbname=repmgr connect_timeout=2'
+data_directory='{{ postgresql_data_dir}}'
+use_replication_slots=1
+log_level=INFO
+log_file='/var/log/repmgr/repmgr.log'
+pg_bindir='{{ postgresql_bin_path }}'
+promote_command='{{ postgresql_bin_path }}/repmgr standby promote -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf --log-to-file'
+follow_command='{{ postgresql_bin_path }}/repmgr standby follow -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf --log-to-file --upstream-node-id=%n'
+standby_disconnect_on_failover=true
+failover='automatic'
+reconnect_attempts=6
+reconnect_interval=10
+monitor_interval_secs=2
+node_rejoin_timeout=30
+standby_reconnect_timeout=30
+log_status_interval=20
+ssh_options='-o "StrictHostKeyChecking=no"'
+service_start_command='sudo /usr/bin/systemctl start postgresql-{{ postgresql_version_major }}'
+service_stop_command='sudo /usr/bin/systemctl stop postgresql-{{ postgresql_version_major }}'
+service_restart_command='sudo /usr/bin/systemctl restart postgresql-{{ postgresql_version_major }}'
+service_reload_command='sudo /usr/bin/systemctl reload postgresql-{{ postgresql_version_major }}'

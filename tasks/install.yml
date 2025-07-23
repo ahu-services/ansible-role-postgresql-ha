@@ -1,0 +1,16 @@
+---
+- name: Install Repmgr and Keepalived
+  become: true
+  ansible.builtin.dnf:
+    name:
+      - "repmgr_{{ postgresql_version_major }}"
+      - keepalived
+    state: present
+
+- name: Add psql/bin to postgres users PATH
+  become: true
+  become_user: postgres
+  ansible.builtin.lineinfile:
+    path: /var/lib/pgsql/.bash_profile
+    line: 'export PATH=$PATH:{{ postgresql_bin_path }}'
+    state: present
