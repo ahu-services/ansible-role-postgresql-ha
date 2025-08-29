@@ -77,6 +77,7 @@ This role installs several aliases to simplify cluster management. The following
 | `ha-vip`        | Show current VIP assignment on local node                         |
 | `ha-vip-arp`    | Show ARP neighbors for VIP                                        |
 | `ha-check`      | Run local health check script                                     |
+| `ha-alias-help` | Show all HA aliases with their descriptions                       |
 
 Dependencies
 ------------

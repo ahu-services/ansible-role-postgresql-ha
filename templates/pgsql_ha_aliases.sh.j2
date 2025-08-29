@@ -14,6 +14,8 @@ export HA_REPMGR_CONF="/etc/repmgr/${HA_PGVER}/repmgr.conf"
 alias ha-show="sudo -iu postgres ${HA_REPMGR} -f ${HA_REPMGR_CONF} cluster show"
 alias ha-role='sudo -iu postgres ${HA_PSQL} -d postgres -Atqc "select case when pg_is_in_recovery() then '\''STANDBY'\'' else '\''PRIMARY'\'' end"'
 alias ha-timeline='sudo -iu postgres ${HA_PSQL} -d postgres -Atqc "select timeline_id from pg_control_checkpoint()"'
+alias ha-sync='sudo -iu postgres psql -d postgres -x -c "SELECT application_name, state, sync_state, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn)) AS sent_lag, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), write_lsn)) AS write_lag, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), flush_lsn)) AS flush_lag, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) AS replay_lag FROM pg_stat_replication;"'
+alias ha-receiver='sudo -iu postgres psql -d postgres -x -v ON_ERROR_STOP=1 -c "WITH r AS (SELECT pg_last_wal_receive_lsn() AS last_receive_lsn, pg_last_wal_replay_lsn() AS last_replay_lsn, pg_last_xact_replay_timestamp() AS last_replay_ts) SELECT COALESCE(wr.status, '\''inactive'\'') AS status, wr.latest_end_lsn, r.last_receive_lsn, r.last_replay_lsn, pg_size_pretty(pg_wal_lsn_diff(wr.latest_end_lsn, r.last_receive_lsn)) AS receive_lag, pg_size_pretty(pg_wal_lsn_diff(wr.latest_end_lsn, r.last_replay_lsn)) AS replay_lag, now() - r.last_replay_ts AS replay_delay FROM pg_stat_wal_receiver wr RIGHT JOIN r ON true;"'
 
 # ---- controlled switchover (run on current STANDBY) ----
 alias ha-switch="sudo -iu postgres ${HA_REPMGR} -f ${HA_REPMGR_CONF} standby switchover --siblings-follow"
@@ -34,3 +36,20 @@ alias ha-vip-arp='ip neigh show | grep -F ${HA_VIP%%/*} || true'
 
 # ---- local health script (your keepalived check) ----
 alias ha-check='/usr/local/bin/check_postgres.sh'
+
+# ---- HA Aliases Help ----
+alias ha-alias-help='echo "ha-show      - Show cluster status" && \
+echo "ha-role      - Show current node role (PRIMARY/STANDBY)" && \
+echo "ha-timeline  - Show current timeline" && \
+echo "ha-sync      - Show replication sync status" && \
+echo "ha-receiver  - Show receiver lag and status" && \
+echo "ha-switch    - Switchover roles (run on standby)" && \
+echo "ha-pause     - Pause repmgrd automation" && \
+echo "ha-unpause   - Unpause repmgrd automation" && \
+echo "ha-paused    - Show if repmgrd is paused" && \
+echo "ha-status    - Show status of PostgreSQL, repmgrd, keepalived" && \
+echo "ha-restart   - Restart PostgreSQL, repmgrd, keepalived" && \
+echo "ha-logs      - Show logs for PostgreSQL, repmgrd, keepalived" && \
+echo "ha-vip       - Show current VIP status" && \
+echo "ha-vip-arp   - Show ARP info for VIP" && \
+echo "ha-check     - Run local health check script"'
