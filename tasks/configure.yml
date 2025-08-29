@@ -1,0 +1,11 @@
+---
+- name: Check Repmgr cluster status
+  ansible.builtin.command: "repmgr cluster show"
+  become: true
+  become_user: postgres
+  register: repmgr_cluster_status
+  changed_when: false
+
+- name: Debug Repmgr cluster status
+  ansible.builtin.debug:
+    var: repmgr_cluster_status.stdout_lines

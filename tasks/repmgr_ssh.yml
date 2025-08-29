@@ -1,0 +1,62 @@
+---
+# SSH setup for repmgr switchover (postgres <-> postgres)
+- name: Ensure ssh-keygen is available
+  become: true
+  ansible.builtin.dnf:
+    name: openssh-clients
+    state: present
+
+- name: Ensure .ssh directory exists with correct permissions
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/pgsql/.ssh
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
+- name: Generate SSH key for postgres user if not present
+  become: true
+  become_user: postgres
+  community.crypto.openssh_keypair:
+    path: /var/lib/pgsql/.ssh/id_rsa
+    type: rsa
+    size: 4096
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Read public key
+  become: true
+  become_user: postgres
+  ansible.builtin.slurp:
+    src: /var/lib/pgsql/.ssh/id_rsa.pub
+  register: repmgr_ssh_pub
+
+- name: Compute HA peer list for SSH exchange
+  ansible.builtin.set_fact:
+    repmgr_ssh_peers: "{{ ansible_play_hosts | difference([inventory_hostname]) }}"
+
+- name: Ensure ~/.ssh exists on peers with correct permissions
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/pgsql/.ssh
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+  loop: "{{ repmgr_ssh_peers }}"
+  loop_control:
+    label: "{{ item }}"
+  delegate_to: "{{ item }}"
+  when: repmgr_ssh_peers | length > 0
+
+- name: Distribute postgres SSH keys to other cluster nodes
+  become: true
+  become_user: postgres
+  ansible.posix.authorized_key:
+    user: postgres
+    key: "{{ repmgr_ssh_pub['content'] | b64decode }}"
+  delegate_to: "{{ item }}"
+  loop: "{{ repmgr_ssh_peers }}"
+  when: repmgr_ssh_peers | length > 0

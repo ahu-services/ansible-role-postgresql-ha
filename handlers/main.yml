@@ -1,2 +1,21 @@
 ---
-# handlers file for ahu_services.postgresql_ha
+# handlers file for oracle-to-pgsql
+- name: Restart postgresql
+  ansible.builtin.systemd:
+    name: "{{ postgresql_daemon }}"
+    state: restarted
+  become: true
+
+- name: Restart repmgr
+  ansible.builtin.systemd:
+    name: "repmgrd"
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: Restart keepalived
+  ansible.builtin.systemd:
+    name: "keepalived"
+    state: restarted
+    daemon_reload: true
+  become: true

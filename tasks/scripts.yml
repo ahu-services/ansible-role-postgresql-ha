@@ -1,0 +1,57 @@
+---
+- name: Configure repmgr run dir
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/repmgrd.conf
+    content: "d /run/repmgr 0755 postgres postgres -\n"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure /var/log/repmgr exists
+  become: true
+  ansible.builtin.file:
+    path: /var/log/repmgr
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+
+- name: Ensure /var/log/repmgr/repmgr.log exists
+  become: true
+  ansible.builtin.file:
+    path: /var/log/repmgr/repmgr.log
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+    owner: postgres
+    group: postgres
+    mode: '0644'
+
+- name: Deploy follow script
+  become: true
+  ansible.builtin.template:
+    src: follow.sh.j2
+    dest: /usr/local/bin/follow.sh
+    owner: root
+    group: postgres
+    mode: "0755"
+
+- name: Deploy pgsql HA aliases script
+  become: true
+  ansible.builtin.template:
+    src: pgsql_ha_aliases.sh.j2
+    dest: /etc/profile.d/pgsql_ha_aliases.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy repmgrd service file
+  become: true
+  ansible.builtin.template:
+    src: repmgrd.service.j2
+    dest: "/etc/systemd/system/repmgrd.service"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart repmgr

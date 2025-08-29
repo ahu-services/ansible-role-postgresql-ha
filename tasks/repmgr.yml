@@ -1,0 +1,113 @@
+---
+- name: Configure postgresql
+  become: true
+  become_user: postgres
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_config_path }}/postgresql.conf"
+    regexp: '^{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  notify: Restart postgresql
+  loop:
+    - { key: 'wal_log_hints', value: 'on' }
+    - { key: 'wal_keep_size', value: '64MB' }
+
+- name: Get current shared_preload_libraries
+  # noqa command-instead-of-module
+  become: true
+  become_user: postgres
+  changed_when: false
+  check_mode: false
+  ansible.builtin.command: "sed -nE \"s/{{ sed_pattern }}/\\1/p\" {{ postgresql_config_path }}/postgresql.conf"
+  register: shared_preload_libraries_sed
+  vars:
+    sed_pattern: "^[[:space:]]*shared_preload_libraries[[:space:]]*=[[:space:]]*'([^']*)'.*"
+
+- name: Set shared_preload_libraries
+  ansible.builtin.set_fact:
+    shared_preload_libraries: >-
+      {{
+        (shared_preload_libraries_sed.stdout
+          | split(',')
+          | reject('equalto', '')
+          | list
+          + ['repmgr'])
+        | map('trim')
+        | unique
+        | join(',')
+      }}
+
+- name: Configure shared_preload_libraries
+  become: true
+  become_user: postgres
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_config_path }}/postgresql.conf"
+    regexp: '^{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  notify: Restart postgresql
+  loop:
+    - { key: 'shared_preload_libraries', value: "'{{ shared_preload_libraries }}'" }
+
+- name: Configure sudoers for repmgr
+  become: true
+  ansible.builtin.copy:
+    content: |
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl start postgresql-{{ postgresql_version_major }}
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop postgresql-{{ postgresql_version_major }}
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart postgresql-{{ postgresql_version_major }}
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload postgresql-{{ postgresql_version_major }}
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl start repmgrd
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop repmgrd
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart repmgrd
+      postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload repmgrd
+    dest: /etc/sudoers.d/repmgr
+    mode: "0440"
+
+- name: Create PostgreSQL replication superuser repmgr
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    state: present
+    name: repmgr
+    password: "{{ postgresql_repmgr_password }}"
+    role_attr_flags: "SUPERUSER,CREATEROLE,CREATEDB"
+    quote_configuration_values: false
+    configuration:
+      search_path: repmgr, public
+
+- name: Create repmgr database
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: repmgr
+    owner: repmgr
+    state: present
+
+- name: Deploy repmgr.conf configuration
+  become: true
+  ansible.builtin.template:
+    src: repmgr.conf.j2
+    dest: "/etc/repmgr/{{ postgresql_version_major }}/repmgr.conf"
+    owner: postgres
+    mode: "0644"
+  notify: Restart repmgr
+
+- name: Check if any node is already registered
+  community.postgresql.postgresql_query:
+    login_db: repmgr
+    query: "SELECT 1 FROM repmgr.nodes WHERE node_name = '{{ ansible_hostname }}'"
+  failed_when: false
+  check_mode: false
+  changed_when: false
+  register: repmgr_node_check
+
+- name: Initial node registration tasks
+  when: repmgr_node_check.query_result | length == 0
+  ansible.builtin.include_tasks: repmgr_initial_registration.yml
+
+- name: Start repmgr service
+  become: true
+  ansible.builtin.systemd:
+    name: "repmgrd"
+    state: started
+    daemon_reload: true
+    enabled: true

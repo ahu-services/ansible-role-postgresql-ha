@@ -1,0 +1,146 @@
+#!/bin/bash
+set -euo pipefail
+
+# Ensure directories created by repmgr are accessible
+umask 0077
+
+# Binaries and PATH
+repmgr_bin=/usr/pgsql-{{ postgresql_version_major }}/bin/repmgr
+psql_bin=/usr/pgsql-{{ postgresql_version_major }}/bin/psql
+export PATH=/usr/pgsql-{{ postgresql_version_major }}/bin:/usr/bin:/bin:/sbin
+
+# Config
+REPMGR_CONFIG="/etc/repmgr/{{ postgresql_version_major }}/repmgr.conf"
+
+# Determine upstream peer IP from inventory variables:
+# - postgresql_repmgr_host: local node IP (or autodetected default ipv4)
+# - postgresql_ha_hosts: list of both nodes' IPs; pick the one that's not ours
+{% set _local_ip = (postgresql_repmgr_host | default(ansible_facts['default_ipv4']['address'])) %}
+{% set _peers = postgresql_ha_hosts | default([]) %}
+{% set _peer_ip = (_peers | difference([_local_ip]) | first) if _peers else None %}
+PRIMARY_CONNINFO="{{ ('host=' ~ _peer_ip ~ ' ') if _peer_ip else '' }}dbname=repmgr user=repmgr connect_timeout=2"
+PEER_IP="{{ _peer_ip | default('') }}"
+
+MAX_WAIT=30
+RETRY_INTERVAL=5
+RETRY_COUNT=5
+
+log(){ /usr/bin/logger -t follow -- "$1"; }
+run_and_log(){ "$@" 2>&1 | /usr/bin/logger -t follow -- ; return ${PIPESTATUS[0]}; }
+
+log "Checking PostgreSQL status..."
+
+# 1) Standby detection (local, no -h)
+IS_STANDBY=$("$psql_bin" -U repmgr -d repmgr -tAc "SELECT pg_is_in_recovery()" || echo "")
+
+if [ "$IS_STANDBY" = "t" ]; then
+  log "Node is already standby, running follow command."
+
+  # Determine this node's repmgr slot name dynamically (repmgr_slot_<node_id>)
+  NODE_LINE=$("$repmgr_bin" -f "$REPMGR_CONFIG" cluster show | grep -E "\|\s*$(hostname -s)\s*\|") || true
+  NODE_ID=""
+  if [ -n "$NODE_LINE" ]; then
+    NODE_ID=$(echo "$NODE_LINE" | awk -F'|' '{gsub(/ /,"",$1); print $1}')
+  fi
+  SLOT_NAME=""
+  if [ -n "$NODE_ID" ]; then
+    SLOT_NAME="repmgr_slot_${NODE_ID}"
+  fi
+
+  # On the primary (peer), free/drop this standby's slot if it exists (handles active pid as well)
+  if [ -n "$PEER_IP" ] && [ -n "$SLOT_NAME" ]; then
+    SLOT_EXISTS=$("$psql_bin" -h "$PEER_IP" -d postgres -Atc \
+      "SELECT 1 FROM pg_replication_slots WHERE slot_name='${SLOT_NAME}'" 2>/dev/null || echo "")
+    if [ "$SLOT_EXISTS" = "1" ]; then
+      log "Dropping replication slot '${SLOT_NAME}' on primary ($PEER_IP)..."
+      "$psql_bin" -h "$PEER_IP" -d postgres -c \
+        "SELECT pg_terminate_backend(active_pid)
+         FROM pg_replication_slots
+         WHERE slot_name='${SLOT_NAME}' AND active" 2>/dev/null || true
+      "$psql_bin" -h "$PEER_IP" -d postgres -c \
+        "SELECT pg_drop_replication_slot('${SLOT_NAME}')" 2>/dev/null || true
+    fi
+  fi
+
+  run_and_log "$repmgr_bin" standby follow -f "$REPMGR_CONFIG" --log-to-file || true
+  log "Unpausing repmgr service and restarting repmgrd..."
+  "$repmgr_bin" -f "$REPMGR_CONFIG" service unpause || true
+  sudo systemctl restart repmgrd || true
+  exit 0
+fi
+
+# 2) Local primary: check peer directly; if peer is also primary, rejoin this node as standby
+if [ -z "$PEER_IP" ]; then
+  log "No peer IP resolved from postgresql_ha_hosts; skipping rejoin check."
+  exit 0
+fi
+
+# Ask peer directly if it's in recovery: f => peer is PRIMARY; t => peer is STANDBY
+PEER_RECOVERY=$("$psql_bin" -h "$PEER_IP" -U repmgr -d repmgr -Atqc "SELECT pg_is_in_recovery()" || echo "")
+
+if [ "$PEER_RECOVERY" = "f" ]; then
+  log "Conflicting primary detected on peer $PEER_IP. Rejoining this node as standby."
+
+  log "Stopping PostgreSQL service..."
+  sudo systemctl stop postgresql-{{ postgresql_version_major }} || true
+
+  # Wait for PostgreSQL service to stop (keep article logic)
+  WAIT_TIME=0
+  while systemctl is-active --quiet postgresql-{{ postgresql_version_major }}; do
+    sleep 1
+    WAIT_TIME=$((WAIT_TIME+1))
+    if [ $WAIT_TIME -ge $MAX_WAIT ]; then
+      log "PostgreSQL service did not stop within $MAX_WAIT seconds. Exiting rejoin process."
+      exit 1
+    fi
+  done
+  log "PostgreSQL service stopped successfully."
+
+  sleep 6
+
+  # Clean up possible stale config archive dir from previous rejoin attempts
+  TMP_ARCHIVE_DIR="/tmp/repmgr-config-archive-$(hostname -s)"
+  if [ -e "$TMP_ARCHIVE_DIR" ]; then
+    log "Found stale config archive dir: $TMP_ARCHIVE_DIR — removing"
+    rm -rf "$TMP_ARCHIVE_DIR" 2>/dev/null || true
+  fi
+
+  # Retry logic for repmgr node rejoin (against peer IP)
+  RETRY=0
+  while [ $RETRY -lt $RETRY_COUNT ]; do
+    log "Running repmgr node rejoin (attempt $((RETRY+1))/$RETRY_COUNT)..."
+    run_and_log "$repmgr_bin" node rejoin -f "$REPMGR_CONFIG" \
+      -d "host=$PEER_IP dbname=repmgr user=repmgr connect_timeout=2" \
+      --force-rewind --config-files=postgresql.local.conf,postgresql.conf --verbose
+    if [ $? -eq 0 ]; then
+      log "Rejoin successful."
+      break
+    else
+      log "Rejoin failed, retrying in $RETRY_INTERVAL seconds..."
+      sleep $RETRY_INTERVAL
+      RETRY=$((RETRY+1))
+    fi
+  done
+
+  if [ $RETRY -eq $RETRY_COUNT ]; then
+    log "Rejoin failed after $RETRY_COUNT attempts. Forcing PostgreSQL to start."
+    sudo systemctl start postgresql-{{ postgresql_version_major }}
+    sleep 6
+  else
+    log "Starting PostgreSQL service..."
+    sudo systemctl start postgresql-{{ postgresql_version_major }}
+    sleep 6
+  fi
+
+  log "Starting repmgrd service..."
+  "$repmgr_bin" -f "$REPMGR_CONFIG" service unpause || true
+  sudo systemctl restart repmgrd || true
+
+  log "Follow script completed."
+else
+  if [ "$PEER_RECOVERY" = "t" ]; then
+    log "Peer $PEER_IP is standby; keeping local primary role."
+  else
+    log "Peer $PEER_IP unreachable or error; keeping local primary role."
+  fi
+fi
