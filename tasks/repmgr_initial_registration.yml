@@ -3,7 +3,7 @@
   # noqa no-changed-when
   become: true
   become_user: postgres
-  ansible.builtin.command: "repmgr -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf primary register"
+  ansible.builtin.command: "{{ postgresql_bin_path }}/repmgr -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf primary register"
   when: postgresql_ha_initial_role == "primary"
 - name: Stop postgresql service before cloning
   become: true
@@ -17,7 +17,8 @@
   become: true
   become_user: postgres
   ansible.builtin.command: >-
-    repmgr -h {{ postgresql_repmgr_peer }} -U repmgr -d repmgr -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf standby clone -F
+    {{ postgresql_bin_path }}/repmgr -h {{ postgresql_repmgr_peer }} -U repmgr -d repmgr
+     -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf standby clone -F
   when: postgresql_ha_initial_role == "standby"
 - name: Start postgresql service after cloning
   become: true
@@ -30,5 +31,5 @@
   # noqa no-changed-when
   become: true
   become_user: postgres
-  ansible.builtin.command: "repmgr -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf standby register"
+  ansible.builtin.command: "{{ postgresql_bin_path }}/repmgr -f /etc/repmgr/{{ postgresql_version_major }}/repmgr.conf standby register"
   when: postgresql_ha_initial_role == "standby"
