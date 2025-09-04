@@ -51,6 +51,7 @@
     state: present
 
 - name: Allow VRRP (protocol 112) in firewalld
+  when: "'firewalld' in ansible_facts.services and ansible_facts.services['firewalld'].state == 'running'"
   become: true
   ansible.posix.firewalld:
     protocol: vrrp
