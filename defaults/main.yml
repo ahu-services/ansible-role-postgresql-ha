@@ -13,6 +13,6 @@ postgresql_ha_hosts:
   - 192.168.34.11
   - 192.168.34.12
 postgresql_repmgr_peer: >-
-  {{ postgresql_ha_hosts | difference(postgresql_repmgr_host) | first }}
+  {{ (postgresql_ha_hosts | difference([postgresql_repmgr_host | string])) | first }}
 postgresql_ha_initial_role: "primary"
 postgresql_repmgr_password: "repmgrpa"
