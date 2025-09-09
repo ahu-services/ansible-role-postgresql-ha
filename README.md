@@ -39,7 +39,7 @@ The following variables are configurable:
 | `postgresql_bin_path` | `"/usr/pgsql-{{ postgresql_version_major }}/bin"` | PostgreSQL binaries path |
 | `postgresql_config_path` | `"/var/lib/pgsql/{{ postgresql_version_major }}/data"` | PostgreSQL configuration directory |
 | `postgresql_ha_vip_cidr` | `192.168.34.100/24` | VIP with CIDR notation for HA |
-| `postgresql_ha_vip_if` | `ens192` | Interface for the VIP |
+| `postgresql_ha_vip_if` | `eth0` | Interface for the VIP |
 | `postgresql_ha_hosts` | `["192.168.34.11", "192.168.34.12"]` | List of cluster node IPs |
 | `postgresql_repmgr_peer` | `{{ postgresql_ha_hosts \| difference(postgresql_repmgr_host) \| first }}` | Peer node address |
 | `postgresql_ha_initial_role` | `"primary"` | Initial role: `primary` or `standby` |

@@ -2,7 +2,7 @@
 - name: Debug test message
   ansible.builtin.debug:
     msg: >
-      This is node {{ postgresql_repmgr_node_id }} with IP {{ postgresql_repmgr_host }}.
+      This is node {{ postgresql_repmgr_node_id }} with IP {{ postgresql_repmgr_host }} and peer {{ postgresql_repmgr_peer }}.
 
 - name: Install required packages
   ansible.builtin.import_tasks: install.yml

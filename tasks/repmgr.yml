@@ -101,7 +101,7 @@
   register: repmgr_node_check
 
 - name: Initial node registration tasks
-  when: repmgr_node_check.query_result | length == 0
+  when: (repmgr_node_check.query_result | default([])) | length == 0
   ansible.builtin.include_tasks: repmgr_initial_registration.yml
 
 - name: Start repmgr service

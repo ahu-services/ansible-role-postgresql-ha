@@ -8,11 +8,11 @@ postgresql_data_dir: "/var/lib/pgsql/{{ postgresql_version_major }}/data"
 postgresql_bin_path: "/usr/pgsql-{{ postgresql_version_major }}/bin"
 postgresql_config_path: "/var/lib/pgsql/{{ postgresql_version_major }}/data"
 postgresql_ha_vip_cidr: 192.168.34.100/24
-postgresql_ha_vip_if: ens192
+postgresql_ha_vip_if: eth0
 postgresql_ha_hosts:
   - 192.168.34.11
   - 192.168.34.12
 postgresql_repmgr_peer: >-
-  {{ postgresql_ha_hosts | difference(postgresql_repmgr_host) | first }}
+  {{ (postgresql_ha_hosts | difference([postgresql_repmgr_host | string])) | first }}
 postgresql_ha_initial_role: "primary"
 postgresql_repmgr_password: "repmgrpa"
