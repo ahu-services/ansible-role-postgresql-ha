@@ -58,3 +58,11 @@
     permanent: true
     state: enabled
     immediate: true
+
+- name: Start keepalived service
+  become: true
+  ansible.builtin.systemd:
+    name: "keepalived"
+    state: started
+    daemon_reload: true
+    enabled: true
