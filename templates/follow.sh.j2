@@ -47,19 +47,35 @@ if [ "$IS_STANDBY" = "t" ]; then
     SLOT_NAME="repmgr_slot_${NODE_ID}"
   fi
 
-  # On the primary (peer), free/drop this standby's slot if it exists (handles active pid as well)
+  # On the primary (peer), only drop this standby's slot if it exists and is INACTIVE
   if [ -n "$PEER_IP" ] && [ -n "$SLOT_NAME" ]; then
-    SLOT_EXISTS=$("$psql_bin" -h "$PEER_IP" -d postgres -Atc \
-      "SELECT 1 FROM pg_replication_slots WHERE slot_name='${SLOT_NAME}'" 2>/dev/null || echo "")
-    if [ "$SLOT_EXISTS" = "1" ]; then
-      log "Dropping replication slot '${SLOT_NAME}' on primary ($PEER_IP)..."
-      "$psql_bin" -h "$PEER_IP" -d postgres -c \
-        "SELECT pg_terminate_backend(active_pid)
-         FROM pg_replication_slots
-         WHERE slot_name='${SLOT_NAME}' AND active" 2>/dev/null || true
-      "$psql_bin" -h "$PEER_IP" -d postgres -c \
-        "SELECT pg_drop_replication_slot('${SLOT_NAME}')" 2>/dev/null || true
-    fi
+    SLOT_STATE=$("$psql_bin" -h "$PEER_IP" -d postgres -Atc \
+      "SELECT CASE WHEN EXISTS(
+         SELECT 1 FROM pg_replication_slots
+         WHERE slot_name='${SLOT_NAME}' AND active
+       ) THEN 'active'
+       WHEN EXISTS(
+         SELECT 1 FROM pg_replication_slots
+         WHERE slot_name='${SLOT_NAME}'
+       ) THEN 'inactive'
+       ELSE 'absent' END" 2>/dev/null || echo "unknown")
+
+    case "$SLOT_STATE" in
+      inactive)
+        log "Found inactive slot '${SLOT_NAME}' on primary ($PEER_IP); dropping it."
+        "$psql_bin" -h "$PEER_IP" -d postgres -c \
+          "SELECT pg_drop_replication_slot('${SLOT_NAME}')" 2>/dev/null || true
+        ;;
+      active)
+        log "Slot '${SLOT_NAME}' on primary is active; leaving it in place."
+        ;;
+      absent)
+        log "Slot '${SLOT_NAME}' not present on primary."
+        ;;
+      *)
+        log "Could not determine slot state for '${SLOT_NAME}'; leaving untouched."
+        ;;
+    esac
   fi
 
   run_and_log "$repmgr_bin" standby follow -f "$REPMGR_CONFIG" --log-to-file || true
