@@ -37,6 +37,15 @@
     group: postgres
     mode: "0755"
 
+- name: Deploy check-vip script
+  become: true
+  ansible.builtin.template:
+    src: check-vip.sh.j2
+    dest: /usr/local/bin/check-vip.sh
+    owner: root
+    group: postgres
+    mode: "0755"
+
 - name: Deploy pgsql HA aliases script
   become: true
   ansible.builtin.template:
