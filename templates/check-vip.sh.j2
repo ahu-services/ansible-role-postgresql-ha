@@ -1,0 +1,6 @@
+#!/bin/bash
+# Usage: check-vip.sh
+VIP="{{ postgresql_ha_vip_cidr }}"
+
+# if VIP present on this host, consider this the active node
+ip -br addr show | grep -Fq "${VIP%%/*}" && exit 0 || exit 1
