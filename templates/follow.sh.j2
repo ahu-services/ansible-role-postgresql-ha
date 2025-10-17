@@ -12,6 +12,18 @@ export PATH=/usr/pgsql-{{ postgresql_version_major }}/bin:/usr/bin:/bin:/sbin
 # Config
 REPMGR_CONFIG="/etc/repmgr/{{ postgresql_version_major }}/repmgr.conf"
 
+# Optional post-action hooks (commands run via bash -lc)
+POST_PRIMARY_HOOKS=(
+{% for cmd in postgresql_ha_post_primary_scripts | default([]) %}
+  "{{ cmd | replace('"', '\\"') }}"
+{% endfor %}
+)
+POST_STANDBY_HOOKS=(
+{% for cmd in postgresql_ha_post_standby_scripts | default([]) %}
+  "{{ cmd | replace('"', '\\"') }}"
+{% endfor %}
+)
+
 # Determine upstream peer IP from inventory variables:
 # - postgresql_repmgr_host: local node IP (or autodetected default ipv4)
 # - postgresql_ha_hosts: list of both nodes' IPs; pick the one that's not ours
@@ -27,6 +39,20 @@ RETRY_COUNT=5
 
 log(){ /usr/bin/logger -t follow -- "$1"; }
 run_and_log(){ "$@" 2>&1 | /usr/bin/logger -t follow -- ; return ${PIPESTATUS[0]}; }
+
+run_hook_list(){
+  local role="$1"
+  shift
+  local hooks=("$@")
+  for hook in "${hooks[@]}"; do
+    if [ -n "$hook" ]; then
+      log "Running post-${role} hook: $hook"
+      if ! run_and_log bash -lc "$hook"; then
+        log "Hook failed for role ${role}: $hook"
+      fi
+    fi
+  done
+}
 
 log "Checking PostgreSQL status..."
 
@@ -82,12 +108,14 @@ if [ "$IS_STANDBY" = "t" ]; then
   log "Unpausing repmgr service and restarting repmgrd..."
   "$repmgr_bin" -f "$REPMGR_CONFIG" service unpause || true
   sudo systemctl restart repmgrd || true
+  run_hook_list "standby" "${POST_STANDBY_HOOKS[@]}"
   exit 0
 fi
 
 # 2) Local primary: check peer directly; if peer is also primary, rejoin this node as standby
 if [ -z "$PEER_IP" ]; then
   log "No peer IP resolved from postgresql_ha_hosts; skipping rejoin check."
+  run_hook_list "primary" "${POST_PRIMARY_HOOKS[@]}"
   exit 0
 fi
 
@@ -152,11 +180,14 @@ if [ "$PEER_RECOVERY" = "f" ]; then
   "$repmgr_bin" -f "$REPMGR_CONFIG" service unpause || true
   sudo systemctl restart repmgrd || true
 
+  run_hook_list "standby" "${POST_STANDBY_HOOKS[@]}"
   log "Follow script completed."
 else
   if [ "$PEER_RECOVERY" = "t" ]; then
     log "Peer $PEER_IP is standby; keeping local primary role."
+    run_hook_list "primary" "${POST_PRIMARY_HOOKS[@]}"
   else
     log "Peer $PEER_IP unreachable or error; keeping local primary role."
+    run_hook_list "primary" "${POST_PRIMARY_HOOKS[@]}"
   fi
 fi

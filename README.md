@@ -44,6 +44,8 @@ The following variables are configurable:
 | `postgresql_repmgr_peer` | `{{ postgresql_ha_hosts \| difference(postgresql_repmgr_host) \| first }}` | Peer node address |
 | `postgresql_ha_initial_role` | `"primary"` | Initial role: `primary` or `standby` |
 | `postgresql_repmgr_password` | `"repmgrpa"` | Password for the `repmgr` user |
+| `postgresql_ha_post_primary_scripts` | `[]` | Optional list of commands executed by `follow.sh` after a node remains/becomes primary |
+| `postgresql_ha_post_standby_scripts` | `[]` | Optional list of commands executed by `follow.sh` after standby follow/rejoin |
 
 Features
 --------
@@ -52,6 +54,7 @@ This role includes several tools and configurations to ensure smooth PostgreSQL 
 
 - **Health check script `check_postgres.sh`**: Verifies primary write availability and standby replication status to ensure cluster health.
 - **Follow script `follow.sh`**: Handles automatic rejoin and rewind operations after failover events.
+- **Custom post-role hooks**: `follow.sh` can run additional commands when a node becomes primary or standby (controlled via `postgresql_ha_post_*_scripts`).
 - **`repmgrd` and `keepalived` managed via systemd**: Both services are configured with autorestart to maintain availability.
 - **Automatic SSH key exchange**: Sets up SSH key-based authentication for the `postgres` user between all cluster nodes to enable seamless communication.
 - **Aliases for common cluster operations**: Installs convenient aliases such as `cluster show`, `switchover`, and `logs` for easier management.
@@ -78,6 +81,11 @@ This role installs several aliases to simplify cluster management. The following
 | `ha-vip-arp`    | Show ARP neighbors for VIP                                        |
 | `ha-check`      | Run local health check script                                     |
 | `ha-alias-help` | Show all HA aliases with their descriptions                       |
+
+Custom Hooks
+------------
+
+You can provide additional commands to execute when a node transitions into or remains in a specific role by populating `postgresql_ha_post_primary_scripts` or `postgresql_ha_post_standby_scripts`. Each entry should be a full command string (for example `/usr/local/bin/seq_resync.sh`). The commands are invoked by `/usr/local/bin/follow.sh` via `bash -lc` so they inherit the shell environment available to the script.
 
 Dependencies
 ------------

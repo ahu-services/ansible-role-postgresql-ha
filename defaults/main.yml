@@ -16,3 +16,5 @@ postgresql_repmgr_peer: >-
   {{ (postgresql_ha_hosts | difference([postgresql_repmgr_host | string])) | first }}
 postgresql_ha_initial_role: "primary"
 postgresql_repmgr_password: "repmgrpa"
+postgresql_ha_post_primary_scripts: []
+postgresql_ha_post_standby_scripts: []

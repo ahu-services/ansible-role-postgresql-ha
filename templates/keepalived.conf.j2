@@ -29,6 +29,7 @@ vrrp_instance VI_1 {
     track_script {
         pg_check
     }
+    notify_master "/usr/local/bin/follow.sh"
     notify_backup "/usr/local/bin/follow.sh"
     notify_fault "/usr/local/bin/follow.sh"
 }
